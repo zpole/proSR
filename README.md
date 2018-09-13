@@ -91,6 +91,9 @@ python train.py --model MODEL --output DIR
 
 # Train with configuration file
 python train.py --config CONFIG.yaml
+
+# Train with GAN loss (requires pretrained generator)
+python train_gan.py --model prosrgan --pretrained data/checkpoints/proSR/latest.pth --output data/checkpoints/GAN
 ```
 
 `MODEL` is one of `prosr` or `prosrs`. The configuration is defined in `prosr/config.py`. Checkpoints and log files are stored in `DIR`. Alternatively, the `--config` flag reads configuration files in `yaml` format. In `PROJECT_ROOT/options` we provide config files corresponding to the architectures proposed in the paper.
@@ -104,6 +107,9 @@ python train.py --model prosrs --output data/checkpoints/proSRs
 
 # ProSR from configuration file
 python train.py --config options/prosr.yaml --output data/checkpoints/proSR
+
+# ProSRGAN from pretrained ProSR model
+python train_gan.py --model prosrgan --pretrained data/checkpoints/proSR/latest --output data/checkpoints/proSRGan 
 ```
 
 ### Loading the dataset
@@ -112,7 +118,7 @@ Set the path to the dataset in `configs.py:prosr_params.train.path{source,target
 `train.path.source` is optional. If left empty, the dataloader will downsample the target images found in `train.path.target` to the predefined lower resolution.
 
 #### Resume Training
-To resume training from a checkpoint, e.g. `data/checkpoints/PRETRAINED_net_G.pth`:
+To resume training from a saved models and optimizer state, e.g. `data/checkpoints/PRETRAINED_net_G.pth` and `data/checkpoints/PRETRAINED_optim_G.pth`:
 ```
 python train.py --checkpoint data/checkpoints/PRETRAINED
 ```

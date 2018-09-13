@@ -1,6 +1,6 @@
 from ..logger import info, warn
 from ..metrics import eval_psnr_and_ssim
-from ..utils import print_network, tensor2im
+from ..utils import tensor2im
 from .generators import ProSR
 from bisect import bisect_left
 from collections import OrderedDict
@@ -26,11 +26,11 @@ class SimultaneousMultiscaleTrainer(object):
         # training variables
         self.input = torch.zeros(
             opt.train.batch_size, 3, 48, 48,
-            dtype=torch.float32).cuda(non_blocking=True)
+            dtype=torch.float32).cuda()
         self.label = torch.zeros_like(
-            self.input, dtype=torch.float32).cuda(non_blocking=True)
+            self.input, dtype=torch.float32).cuda()
         self.interpolated = torch.zeros_like(
-            self.label, dtype=torch.float32).cuda(non_blocking=True)
+            self.label, dtype=torch.float32).cuda()
         # for evaluation
         self.best_eval = OrderedDict(
             [('psnr_x%d' % s, 0.0) for s in opt.data.scale])
@@ -65,7 +65,6 @@ class SimultaneousMultiscaleTrainer(object):
                 info('Set lr = %e' % self.lr)
             except Exception as e:
                 warn("Error loading pretrained network. " + str(e))
-                exit(0)
 
         ########### define loss functions  ############
         self.l1_criterion = torch.nn.L1Loss()
@@ -113,8 +112,8 @@ class SimultaneousMultiscaleTrainer(object):
                 self.input, upscale_factor=self.model_scale,
                 blend=self.blend) + self.interpolated
 
-        im1 = self.tensor2im(self.label)
-        im2 = self.tensor2im(self.output)
+        im1 = self.tensor2im(self.label.detach())
+        im2 = self.tensor2im(self.output.detach())
         eval_res = {
             'psnr_x%d' % self.model_scale:
             eval_psnr_and_ssim(im1, im2, self.model_scale)[0]
@@ -317,8 +316,7 @@ class CurriculumLearningTrainer(SimultaneousMultiscaleTrainer):
     def increment_training_progress(self):
         """increment self.progress and D, G scale_idx"""
         self.progress += 1 / len(self.training_dataset) / self.opt.train.epochs
-        if self.progress > self.opt.train.growing_steps[self.current_scale_idx
-                                                        * 2]:
+        if self.progress > self.opt.train.growing_steps[self.current_scale_idx * 2]:
             if self.current_scale_idx < len(self.opt.data.scale) - 1:
                 self.current_scale_idx += 1
                 self.net_G.current_scale_idx = self.current_scale_idx
@@ -332,3 +330,168 @@ class CurriculumLearningTrainer(SimultaneousMultiscaleTrainer):
                     self.training_dataset.random_vars.append(s)
                 info('start training with scales: {}'.format(
                     str(training_scales)))
+
+
+from math import log2
+from .discriminators import ProSRD, GANLoss
+from .vgg import Vgg16
+class SimultaneousMultiscaleGANTrainer(SimultaneousMultiscaleTrainer):
+    def __init__(self, opt,
+                training_dataset,
+                save_dir="data/checkpoints",
+                resume_from=None):
+        super().__init__(opt, training_dataset, save_dir, resume_from, )
+
+        opt.D.max_scale = opt.G.max_scale
+
+        self.net_D = ProSRD(**opt.D).cuda()
+        self.criterionGAN = GANLoss(use_lsgan=opt.D.use_lsgan).cuda()
+        self.mse_criterion = torch.nn.MSELoss()
+
+        self.vgg_net = Vgg16(opt.train.dataset.mean, opt.train.dataset.stddev,
+                upto=max(opt.train.vgg), mean_pool=opt.train.vgg_mean_pool).cuda()
+        self.vgg_net.eval()
+        if torch.cuda.device_count() > 1:
+            self.net_D = torch.nn.DataParallel(self.net_D)
+            self.vgg_net = torch.nn.DataParallel(self.vgg_net)
+
+        # initialize optimizers
+        self.optimizer_D = torch.optim.Adam(
+            [p for p in self.net_D.parameters() if p.requires_grad],
+            lr=opt.train.D_lr, betas=(0.9, 0.999))
+
+        # load network weights
+        if resume_from:
+            try:
+                self.load_network(self.net_D, 'D', resume_from)
+                self.load_optimizer(self.optimizer_D, 'D', resume_from)
+            except Exception as e:
+                warn("Error loading pretrained network. " + str(e))
+
+    def name(self):
+        return 'SimultaneousMultiscaleGANTrainer'
+
+    def set_train(self):
+        super().set_train()
+        self.net_D.train()
+
+    def set_eval(self):
+        super().set_eval()
+        self.net_D.eval()
+
+    def set_input_D(self, detach=False):
+        # set detach false when optimizing for D
+        self.real = (self.label - self.interpolated) if \
+            self.opt.D.input_residual else self.label
+        self.fake = (self.output-self.interpolated) if \
+            self.opt.D.input_residual else self.output
+        if detach:
+            self.fake = self.fake.detach()
+
+    def optimize_D(self):
+        "call this function after self.forward()"
+        self.optimizer_D.zero_grad()
+        # Real
+        self.set_input_D(detach=True)
+        self.forward_D(is_real=True)
+        self.loss_D_real = self.criterionGAN(self.pred_real, True)
+        # Fake
+        self.forward_D(is_real=False)
+        self.loss_D_fake = self.criterionGAN(self.pred_fake, False)
+        # Combined loss
+        self.loss_D = (self.loss_D_real + self.loss_D_fake) * 0.5
+        self.loss_D.backward()
+        self.optimizer_D.step()
+
+    def forward_D(self, is_real):
+        if is_real:
+            self.pred_real = self.net_D.forward(self.real, upscale_factor=self.model_scale, blend=self.blend)
+        else:
+            self.pred_fake = self.net_D.forward(self.fake, upscale_factor=self.model_scale, blend=self.blend)
+
+    def backward_G(self):
+        self.compute_loss()
+        self.loss.backward()
+
+    def optimize_G(self):
+        self.optimizer_G.zero_grad()
+        self.set_input_D(detach=False)
+        self.forward_D(is_real=False)
+        self.backward_G()
+        self.optimizer_G.step()
+
+    def compute_loss(self):
+        self.loss = 0
+        if sum(self.opt.train.vgg_loss_weight) > 0:
+            self.vgg_loss = 0
+            vgg_real = self.vgg_net(self.label, acquire=self.opt.train.vgg)
+            vgg_fake = self.vgg_net(self.output, acquire=self.opt.train.vgg)
+            for i in range(len(self.opt.train.vgg)):
+                self.vgg_loss += self.mse_criterion(vgg_fake[i], vgg_real[i].detach()) * \
+                                 self.opt.train.vgg_loss_weight[i]
+            self.loss += self.vgg_loss
+
+        if self.opt.train.gan_loss_weight > 0:
+            self.gan_loss = self.criterionGAN(self.pred_fake, True) * \
+                self.opt.train.gan_loss_weight * abs(log2(self.model_scale))
+            self.loss += self.gan_loss
+
+    def get_current_errors(self):
+        error_d = super().get_current_errors()
+        for s in self.opt.data.scale:
+            if sum(self.opt.train.vgg_loss_weight) > 0:
+                error_d['vgg_x%d' % s] = 0.0
+                error_d['lr_x%d' % s] = 0.0
+
+        if hasattr(self, 'vgg_loss'):
+            error_d['vgg_x%d' % self.model_scale] = self.vgg_loss.item()
+
+        if self.opt.train.gan_loss_weight > 0:
+            error_d['gan_loss'] = 0.0
+            error_d['d_real_loss'] = 0.0
+            error_d['d_fake_loss'] = 0.0
+        if hasattr(self, 'gan_loss'):
+            error_d['gan_loss'] = self.gan_loss.item()
+        if hasattr(self, 'loss_D_real'):
+            error_d['d_real_loss'] = self.loss_D_real.item()
+        if hasattr(self, 'loss_D_fake'):
+            error_d['d_fake_loss'] = self.loss_D_fake.item()
+        return error_d
+
+    def get_current_visuals(self):
+        disp = super().get_current_visuals()
+        self.set_input_D()
+        disp['real_input'] = self.tensor2im(self.real.detach())
+        disp['fake_input'] = self.tensor2im(self.fake.detach())
+        return disp
+
+    def save(self, epoch_label, epoch, lr):
+        super().save(epoch_label, epoch, lr)
+        self.save_network(self.net_D, 'D', epoch_label)
+        self.save_optimizer(self.optimizer_D, 'D', epoch_label, epoch, lr)
+
+    def update_learning_rate(self):
+        super().update_learning_rate()
+        self.set_learning_rate(self.lr, self.optimizer_D)
+
+
+class CurriculumLearningGANTrainer(CurriculumLearningTrainer, SimultaneousMultiscaleGANTrainer):
+    """docstring for GrowingGeneratorModel"""
+
+    def __init__(self, opt, training_dataset, save_dir, resume_from):
+        super().__init__(opt, training_dataset, save_dir, resume_from)
+
+    def reset_curriculum_for_dataloader(self):
+        super().reset_curriculum_for_dataloader()
+        self.net_D.current_scale_idx = self.current_scale_idx
+
+    def name(self):
+        return 'CurriculumLearningGANTrainer'
+
+    def increment_training_progress(self):
+        super().increment_training_progress()
+        self.net_D.current_scale_idx = self.net_G.current_scale_idx
+
+    def optimize_G(self):
+        super().optimize_G()
+        self.increment_training_progress()

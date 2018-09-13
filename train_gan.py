@@ -4,7 +4,7 @@ from easydict import EasyDict as edict
 from pprint import pprint
 from prosr.data import DataLoader, Dataset
 from prosr.logger import info
-from prosr.models.trainer import CurriculumLearningTrainer, SimultaneousMultiscaleTrainer
+from prosr.models.trainer import CurriculumLearningGANTrainer, SimultaneousMultiscaleGANTrainer
 from prosr.utils import get_filenames, IMG_EXTENSIONS, print_current_errors,set_seed
 from time import time
 
@@ -16,13 +16,14 @@ import random
 import sys
 import torch
 import yaml
+import skimage.io as io
 
 # BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # sys.path.append(osp.join(BASE_DIR, 'lib'))
 
 
 def parse_args():
-    parser = ArgumentParser(description='training script for ProSR')
+    parser = ArgumentParser(description='training script for ProSRGAN')
 
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument(
@@ -30,7 +31,7 @@ def parse_args():
         '--model',
         type=str,
         help='model',
-        choices=['prosr', 'prosrs', 'debug'])
+        choices=['prosrgan', 'gandebug'])
 
     group.add_argument(
         '-c',
@@ -42,8 +43,14 @@ def parse_args():
         '-ckpt',
         '--checkpoint',
         type=str,
-        help='checkpoint e.g. ./checkpoint/latest loads ./checkpoint/latest_G_net.pth',
+        help='checkpoint path e.g. ./checkpoint/latest loads ./checkpoint/latest_{G/D}_net.pth',
     )
+
+    parser.add_argument(
+        '--pretrained',
+        type=str,
+        help='pretrained generator path e.g. ./checkpoint/latest loads ./checkpoint/latest_G_net.pth')
+
     parser.add_argument(
         '--no-curriculum',
         action='store_true',
@@ -83,8 +90,8 @@ def parse_args():
 
     args = parser.parse_args()
 
-    if (args.model or args.config) and args.output is None:
-        parser.error("--model and --config requires --output.")
+    if bool(args.pretrained) == bool(args.checkpoint):
+        parser.error("must specify pretrained generator OR resume from a checkpoint. Set --pretrained OR --checkpoint")
 
     ############# set up trainer ######################
     if args.checkpoint:
@@ -143,9 +150,9 @@ def main(args):
         testing_data_loader = None
 
     if args.cmd.no_curriculum or len(args.data.scale) == 1:
-        Trainer_cl = SimultaneousMultiscaleTrainer
+        Trainer_cl = SimultaneousMultiscaleGANTrainer
     else:
-        Trainer_cl = CurriculumLearningTrainer
+        Trainer_cl = CurriculumLearningGANTrainer
 
     args.G.max_scale = np.max(args.data.scale)
 
@@ -153,7 +160,7 @@ def main(args):
         args,
         training_data_loader,
         save_dir=args.cmd.output,
-        resume_from=args.cmd.checkpoint)
+        resume_from=args.cmd.checkpoint or args.cmd.pretrained)
 
     log_file = os.path.join(args.cmd.output, 'loss_log.txt')
 
@@ -168,13 +175,44 @@ def main(args):
     errors_accum = defaultdict(list)
     errors_accum_prev = defaultdict(lambda: 0)
 
+    # warm up discriminator
+    if trainer.start_epoch == 0:
+        info('warm up discriminator')
+        total_steps = args.D.warmup_epochs * steps_per_epoch
+        for epoch in range(trainer.start_epoch+1, args.D.warmup_epochs + 1):
+            iter_start_time = time()
+            for i, data in enumerate(trainer.training_dataset):
+                trainer.set_input(**data)
+                # save memory
+                with torch.no_grad():
+                    trainer.forward()
+                trainer.optimize_D()
+                total_steps += 1
+
+                if total_steps % args.train.io.print_errors_freq == 0:
+                    errors = trainer.get_current_errors()
+                    t = time() - iter_start_time
+                    iter_start_time = time()
+                    print_current_errors(epoch, total_steps, errors, t, log_name=log_file)
+                    if args.cmd.visdom:
+                        real_epoch = float(total_steps) / steps_per_epoch
+                        visualizer.plot(errors, real_epoch, "D loss")
+                        visualizer.display_current_results(trainer.get_current_visuals(), real_epoch)
+
+        info('finished discriminator warm up')
+
+    total_steps = trainer.start_epoch * steps_per_epoch
+    info('start training from epoch %d, learning rate %e' % (trainer.start_epoch, trainer.lr))
+
     for epoch in range(trainer.start_epoch + 1, args.train.epochs + 1):
-        iter_start_time = time()
         trainer.set_train()
+        iter_start_time = time()
         for i, data in enumerate(trainer.training_dataset):
             trainer.set_input(**data)
             trainer.forward()
-            trainer.optimize_parameters()
+            if total_steps % args.D.update_freq == 0:
+                trainer.optimize_D()
+            trainer.optimize_G()
 
             errors = trainer.get_current_errors()
             for key, item in errors.items():
@@ -223,17 +261,24 @@ def main(args):
         # eval epochs incrementally
         eval_epoch_freq = 1
 
-        ################# test with validation set ##############
+        ################# test with validation set and save images for visual inspection ##############
         if testing_data_loader and epoch % eval_epoch_freq  == 0:
             eval_epoch_freq = min(eval_epoch_freq * 2, args.train.io.eval_epoch_freq)
+
             with torch.no_grad():
                 test_start_time = time()
                 # use validation set
                 trainer.set_eval()
                 trainer.reset_eval_result()
+                save_dir = osp.join(args.cmd.output, 'epoch_%d' % epoch)
                 for i, data in enumerate(testing_data_loader):
                     trainer.set_input(**data)
                     trainer.evaluate()
+                    # unlike in gen-only training we save outputs
+                    fn = osp.join(save_dir, 'X%d' % trainer.model_scale, osp.basename(data['input_fn'][0]))
+                    os.makedirs(osp.dirname(fn), exist_ok=True)
+                    sr = trainer.tensor2im(trainer.output.detach())
+                    io.imsave(fn, sr)
 
                 t = time() - test_start_time
                 test_result = trainer.get_current_eval_result()
@@ -243,40 +288,6 @@ def main(args):
                     visualizer.plot(test_result,
                                     float(total_steps) / steps_per_epoch,
                                     'eval', 'psnr')
-
-                trainer.update_best_eval_result(epoch, test_result)
-                info(
-                    'eval at epoch %d : ' % epoch + ' | '.join([
-                        '{}: {:.02f}'.format(k, v)
-                        for k, v in test_result.items()
-                    ]) + ' | time {:d} sec'.format(int(t)),
-                    bold=True)
-
-                info(
-                    'best so far %d : ' % trainer.best_epoch + ' | '.join([
-                        '{}: {:.02f}'.format(k, v)
-                        for k, v in trainer.best_eval.items()
-                    ]),
-                    bold=True)
-
-                if trainer.best_epoch == epoch:
-                    if len(trainer.best_eval) > 1:
-                        if not isinstance(trainer, CurriculumLearningTrainer):
-                            best_key = [
-                                k for k in trainer.best_eval
-                                if trainer.best_eval[k] == test_result[k]
-                            ]
-                        else:
-                            # select only upto current training scale
-                            best_key = ["psnr_x%d" % trainer.opt.data.scale[s_idx]
-                                    for s_idx in range(trainer.current_scale_idx+1)]
-                            best_key = [k for k in best_key
-                                    if trainer.best_eval[k] == test_result[k]]
-
-                    else:
-                        best_key = list(trainer.best_eval.keys())
-                    trainer.save(str(epoch) + '_best_' + '_'.join(best_key), epoch,
-                                 trainer.lr)
 
 
 if __name__ == '__main__':
@@ -291,11 +302,12 @@ if __name__ == '__main__':
             except yaml.YAMLError as exc:
                 print(exc)
                 sys.exit(0)
-    elif args.model is not None:
-        params = edict(getattr(prosr, args.model + '_params'))
+
+    elif args.checkpoint is not None:
+        params = torch.load(args.checkpoint + '_net_G.pth')['params']
 
     else:
-        params = torch.load(args.checkpoint + '_net_G.pth')['params']
+        params = edict(getattr(prosr, args.model+'_params'))
 
     # parameters overring
     if args.fast_validation is not None:

@@ -13,7 +13,6 @@ import time
 import os.path as osp
 import prosr
 import skimage.io as io
-import sys
 import torch
 
 # BASE_DIR = os.path.dirname(os.path.abspath(__file__))

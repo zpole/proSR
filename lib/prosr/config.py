@@ -45,6 +45,7 @@ prosr_params = \
         },
         'G': {
             'residual_denseblock': True,  # ProSR_l and ProSRGan uses residual links, ProSR_l doesn't
+            'max_scale': 8,  # cooresponds to max(prosr_params.data.scale)
             # densenet hyperparameters
             'num_init_features': 160,
             'growth_rate': 40,
@@ -69,7 +70,7 @@ prosr_params = \
 
                 },
                 'downscale':False,
-
+                'mean': [0.4488, 0.4371, 0.4040],
                 'stddev': [0.0039215, 0.0039215, 0.0039215]  # multiply the image value by this factor, resulting value range of image [-127.5, 127.5]
             },
         },
@@ -89,25 +90,19 @@ prosrs_params.G.res_factor = 1.0
 
 prosrgan_params = copy.deepcopy(prosr_params)
 prosrgan_params.D = edict({
-    'which_epoch': 'latest',
-    'which_model_netD': 'srgan',
-    'input_residual': True,
-    'scale_overhead': True,
-    'warmup_epochs': 0,
-    'update_freq': 2,
-    'use_lsgan': True,
-    'ndf': 64,
-    'act_type': 'LRELU',
-    'act_params': {
-        'negative_slope': 0.2
-    },
+    'input_residual': True,  # discriminates residual
+    'scale_overhead': True,  # pyramid discriminator
+    'warmup_epochs': 2, # train discriminator 2 epochs before iterating D and G
+    'update_freq': 2, # every D update corresponds to twice G updates
+    'use_lsgan': True,  # use least square GAN
+    'ndf': 64,  # discriminator feature number
 })
 prosrgan_params.train.D_lr = 0.0001
 prosrgan_params.train.vgg_loss_weight = [0.5, 2]
 prosrgan_params.train.gan_loss_weight = 1
 prosrgan_params.train.l1_loss_weight = 0
-prosrgan_params.G.vgg = [2, 4]
-prosrgan_params.G.vgg_mean_pool = True
+prosrgan_params.train.vgg = [2, 4]
+prosrgan_params.train.vgg_mean_pool = True
 
 debug_params = copy.deepcopy(prosrs_params)
 debug_params.train.io.eval_epoch_freq = 1
@@ -117,3 +112,10 @@ debug_params.train.dataset.path.target = 'data/datasets/DIV2K/DIV2K_debug_HR'
 debug_params.train.epochs = 10
 debug_params.test.fast_validation = 2
 
+gandebug_params = copy.deepcopy(prosrgan_params)
+gandebug_params.train.io.eval_epoch_freq = 1
+gandebug_params.train.io.print_errors_freq = 10
+gandebug_params.train.io.save_model_freq = 5
+gandebug_params.train.dataset.path.target = 'data/datasets/DIV2K/DIV2K_debug_HR'
+gandebug_params.train.epochs = 10
+gandebug_params.test.fast_validation = 2
