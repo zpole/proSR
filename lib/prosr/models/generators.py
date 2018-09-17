@@ -175,6 +175,9 @@ class ProSR(nn.Module):
             out_channels = in_channels
         return nn.Sequential(block), out_channels
 
+    def predict(self,input,data,scale):
+        return self.forward(input,scale).cpu() + data['bicubic']
+
     def class_name(self):
         return 'ProSR'
 
@@ -223,6 +226,9 @@ class EDSR(nn.Module):
         output = self.reconst(output)
 
         return output
+
+    def predict(self,input,data,scale):
+        return self.forward(input).cpu()
 
     def class_name(self):
         return 'EDSR'

@@ -119,7 +119,7 @@ debug_params.train.dataset.path.target = 'data/datasets/DIV2K/DIV2K_debug_HR'
 debug_params.train.epochs = 10
 debug_params.test.fast_validation = 2
 
-edsr_params = copy.deepcopy(debug_params)
+edsr_params = copy.deepcopy(prosr_params)
 edsr_params.data.scale = [8]
 edsr_params.data.input_size = [24]
 edsr_params.G.class_name = 'EDSR'

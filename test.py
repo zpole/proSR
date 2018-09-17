@@ -119,7 +119,7 @@ if __name__ == '__main__':
             input = data['input']
             if not args.cpu:
                 input = input.cuda()
-            output = model(input, args.scale).cpu() + data['bicubic']
+            output = model.predict(input,data,args.scale)
             sr_img = tensor2im(output, mean, stddev)
             toc = time.time()
             if 'target' in data:
