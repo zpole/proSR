@@ -175,6 +175,9 @@ class ProSR(nn.Module):
             out_channels = in_channels
         return nn.Sequential(block), out_channels
 
+    def predict(self,input,data,scale):
+        return self.forward(input,scale).cpu() + data['bicubic']
+
     def class_name(self):
         return 'ProSR'
 
@@ -214,10 +217,7 @@ class EDSR(nn.Module):
             'reconst',
             nn.Sequential(OrderedDict([('reconst_conv0', Conv2d(256, 3, 3))])))
 
-    def forward(self, x, scale=None, blend=1):
-        if scale is not None and scale != self.upscale_factor:
-            error("Invalid upscaling factor: choose one of: {}".format(
-                [self.upscale_factor]))
+    def forward(self, x, **kwargs):
 
         init_conv = self.init_conv(x)
         residual = self.residual(init_conv)
@@ -227,5 +227,8 @@ class EDSR(nn.Module):
 
         return output
 
+    def predict(self,input,data,scale):
+        return self.forward(input).cpu()
+
     def class_name(self):
-        return 'ESDR'
+        return 'EDSR'

@@ -1,7 +1,7 @@
 from ..logger import info, warn
 from ..metrics import eval_psnr_and_ssim
 from ..utils import tensor2im
-from .generators import ProSR
+from .generators import ProSR, EDSR
 from bisect import bisect_left
 from collections import OrderedDict
 
@@ -13,6 +13,7 @@ class SimultaneousMultiscaleTrainer(object):
     """multiscale training without curriculum scheduling"""
     def __init__(self,
                 opt,
+                net_G,
                 training_dataset,
                 save_dir="data/checkpoints",
                 resume_from=None):
@@ -41,13 +42,11 @@ class SimultaneousMultiscaleTrainer(object):
                                              stddev=training_dataset.dataset.stddev)
 
         opt.G.max_scale = max(opt.data.scale)
+        self.net_G = net_G
 
-        ######### create generator and optimizer  #########
-        self.net_G = ProSR(**opt.G).cuda()
         self.best_epoch = 0
 
         ######## Multi GPU #######
-        # TODO: doesn't work for ProSRs
         if torch.cuda.device_count() > 1:
             self.net_G = torch.nn.DataParallel(self.net_G)
 
@@ -263,10 +262,11 @@ class SimultaneousMultiscaleTrainer(object):
 class CurriculumLearningTrainer(SimultaneousMultiscaleTrainer):
     def __init__(self,
                 opt,
+                net_G,
                 training_dataset,
                 save_dir="data/checkpoints",
                 resume_from=None):
-        super(CurriculumLearningTrainer, self).__init__(opt, training_dataset, save_dir, resume_from)
+        super(CurriculumLearningTrainer, self).__init__(opt, net_G, training_dataset, save_dir, resume_from)
         self.reset_curriculum_for_dataloader()
 
     def reset_curriculum_for_dataloader(self):

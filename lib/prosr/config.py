@@ -44,6 +44,7 @@ prosr_params = \
             },
         },
         'G': {
+            'class_name': 'ProSR',
             'residual_denseblock': True,  # ProSR_l and ProSRGan uses residual links, ProSR_l doesn't
             'max_scale': 8,  # cooresponds to max(prosr_params.data.scale)
             # densenet hyperparameters
@@ -66,11 +67,11 @@ prosr_params = \
             'dataset': {
                 'path': {
                     'source':'',
-                    'target':'data/datasets/Set14'
+                    'target':'data/datasets/Set14/HR'
 
                 },
                 'downscale':False,
-                'mean': [0.4488, 0.4371, 0.4040],
+                'mean': [0.4488, 0.4371, 0.4040],  # mean value to extract from the (0, 1) image values
                 'stddev': [0.0039215, 0.0039215, 0.0039215]  # multiply the image value by this factor, resulting value range of image [-127.5, 127.5]
             },
         },
@@ -112,10 +113,18 @@ debug_params.train.dataset.path.target = 'data/datasets/DIV2K/DIV2K_debug_HR'
 debug_params.train.epochs = 10
 debug_params.test.fast_validation = 2
 
-gandebug_params = copy.deepcopy(prosrgan_params)
-gandebug_params.train.io.eval_epoch_freq = 1
-gandebug_params.train.io.print_errors_freq = 10
-gandebug_params.train.io.save_model_freq = 5
-gandebug_params.train.dataset.path.target = 'data/datasets/DIV2K/DIV2K_debug_HR'
-gandebug_params.train.epochs = 10
-gandebug_params.test.fast_validation = 2
+
+edsr_params = copy.deepcopy(prosr_params)
+edsr_params.data.scale = [8]
+edsr_params.data.input_size = [24]
+edsr_params.G.class_name = 'EDSR'
+edsr_params.G.num_blocks = 36
+edsr_params.G.upscale_factor = edsr_params.data.scale[0]
+
+# gandebug_params = copy.deepcopy(prosrgan_params)
+# gandebug_params.train.io.eval_epoch_freq = 1
+# gandebug_params.train.io.print_errors_freq = 10
+# gandebug_params.train.io.save_model_freq = 5
+# gandebug_params.train.dataset.path.target = 'data/datasets/DIV2K/DIV2K_debug_HR'
+# gandebug_params.train.epochs = 10
+# gandebug_params.test.fast_validation = 2
