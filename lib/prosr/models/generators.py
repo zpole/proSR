@@ -211,8 +211,11 @@ class EDSR(nn.Module):
         self.add_module('residual', nn.Sequential(arch))
 
         # Upsampling and reconstruction
-        self.add_module('upsampler', PixelShuffleUpsampler(
-            upscale_factor, 256))
+        if upscale_factor > 1:
+            self.add_module('upsampler', PixelShuffleUpsampler(
+                upscale_factor, 256))
+        else:
+            self.upsampler = lambda x:x
         self.add_module(
             'reconst',
             nn.Sequential(OrderedDict([('reconst_conv0', Conv2d(256, 3, 3))])))
