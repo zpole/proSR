@@ -337,10 +337,11 @@ from .discriminators import ProSRD, GANLoss
 from .vgg import Vgg16
 class SimultaneousMultiscaleGANTrainer(SimultaneousMultiscaleTrainer):
     def __init__(self, opt,
+                 net_G,
                 training_dataset,
                 save_dir="data/checkpoints",
                 resume_from=None):
-        super().__init__(opt, training_dataset, save_dir, resume_from, )
+        super().__init__(opt, net_G, training_dataset, save_dir, resume_from, )
 
         opt.D.max_scale = opt.G.max_scale
 
@@ -478,8 +479,8 @@ class SimultaneousMultiscaleGANTrainer(SimultaneousMultiscaleTrainer):
 class CurriculumLearningGANTrainer(CurriculumLearningTrainer, SimultaneousMultiscaleGANTrainer):
     """docstring for GrowingGeneratorModel"""
 
-    def __init__(self, opt, training_dataset, save_dir, resume_from):
-        super().__init__(opt, training_dataset, save_dir, resume_from)
+    def __init__(self, opt, net_G, training_dataset, save_dir, resume_from):
+        super().__init__(opt, net_G, training_dataset, save_dir, resume_from)
 
     def reset_curriculum_for_dataloader(self):
         super().reset_curriculum_for_dataloader()

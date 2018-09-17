@@ -156,8 +156,12 @@ def main(args):
 
     args.G.max_scale = np.max(args.data.scale)
 
+    cls_model = getattr(prosr.models, args.G.class_name)
+    model     = cls_model(**args.G).cuda()
+
     trainer = Trainer_cl(
         args,
+        model,
         training_data_loader,
         save_dir=args.cmd.output,
         resume_from=args.cmd.checkpoint or args.cmd.pretrained)
