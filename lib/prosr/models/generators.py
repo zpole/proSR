@@ -188,7 +188,7 @@ class EDSR(nn.Module):
   'Enhanced Deep Residual Networks for Single Image Super-Resolution' (CVPRW 2017)
   """
 
-    def __init__(self, upscale_factor, num_blocks=36, **kwargs):
+    def __init__(self, upscale_factor, num_blocks=36, num_channels=3,**kwargs):
         super(EDSR, self).__init__()
 
         if upscale_factor % 2 != 0 and upscale_factor != 1:
@@ -200,7 +200,7 @@ class EDSR(nn.Module):
         self.scales = [self.upscale_factor]
 
         # Projection from image space.
-        self.add_module('init_conv', Conv2d(3, 256, 3))
+        self.add_module('init_conv', Conv2d(num_channels, 256, 3))
 
         # Backbone
         arch = OrderedDict()
@@ -231,7 +231,7 @@ class EDSR(nn.Module):
         return output
 
     def predict(self,input,data,scale):
-        return self.forward(input).cpu()
+        return self.forward(input).cpu()+data['bicubic']
 
     def class_name(self):
         return 'EDSR'
