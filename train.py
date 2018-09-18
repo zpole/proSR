@@ -149,8 +149,8 @@ def main(args):
 
     cls_model = getattr(prosr.models, args.G.class_name)
     model     = cls_model(**args.G).cuda()
-    print_network(model)
-    exit(0)
+    # print_network(model)
+    # exit(0)
 
     trainer = Trainer_cl(
         args,
