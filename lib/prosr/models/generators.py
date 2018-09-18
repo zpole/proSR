@@ -188,7 +188,7 @@ class EDSR(nn.Module):
   'Enhanced Deep Residual Networks for Single Image Super-Resolution' (CVPRW 2017)
   """
 
-    def __init__(self, upscale_factor, num_blocks=36, num_channels=3,**kwargs):
+    def __init__(self, upscale_factor, num_blocks=36, num_channels=3,kernel_size=3,**kwargs):
         super(EDSR, self).__init__()
 
         if upscale_factor % 2 != 0 and upscale_factor != 1:
@@ -200,25 +200,25 @@ class EDSR(nn.Module):
         self.scales = [self.upscale_factor]
 
         # Projection from image space.
-        self.add_module('init_conv', Conv2d(num_channels, 256, 3))
+        self.add_module('init_conv', Conv2d(num_channels, 256, kernel_size))
 
         # Backbone
         arch = OrderedDict()
         for i in range(1, self.num_blocks + 1):
             arch['resblock_%d' % i] = ResidualBlock(
-                block_type.CRC, 'RELU', 256, res_factor=0.1)
-        arch['final_conv'] = Conv2d(256, 256, 3)
+                block_type.CRC, 'RELU', 256, kernel_size,res_factor=0.1)
+        arch['final_conv'] = Conv2d(256, 256, kernel_size)
         self.add_module('residual', nn.Sequential(arch))
 
         # Upsampling and reconstruction
         if upscale_factor > 1:
             self.add_module('upsampler', PixelShuffleUpsampler(
-                upscale_factor, 256))
+                upscale_factor, 256,kernel_size))
         else:
             self.upsampler = lambda x:x
         self.add_module(
             'reconst',
-            nn.Sequential(OrderedDict([('reconst_conv0', Conv2d(256, 3, 3))])))
+            nn.Sequential(OrderedDict([('reconst_conv0', Conv2d(256, 3, kernel_size))])))
 
     def forward(self, x, **kwargs):
 

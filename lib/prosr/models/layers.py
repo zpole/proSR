@@ -67,7 +67,7 @@ class Conv2d(nn.Module):
 class PixelShuffleUpsampler(nn.Sequential):
     """Upsample block with pixel shuffle"""
 
-    def __init__(self, ratio, planes, woReLU=True):
+    def __init__(self, ratio, planes, kernel_size=3, woReLU=True):
         super(PixelShuffleUpsampler, self).__init__()
         assert ratio == 3 or log2(ratio) == int(log2(ratio))
         layers = []
@@ -76,7 +76,7 @@ class PixelShuffleUpsampler(nn.Sequential):
                 mul = 9
             else:
                 mul = 4
-            layers += [Conv2d(planes, mul * planes, 3), nn.PixelShuffle(2)]
+            layers += [Conv2d(planes, mul * planes, kernel_size), nn.PixelShuffle(2)]
             if not woReLU:
                 layers.append(nn.ReLU(inplace=True))
 
@@ -91,6 +91,7 @@ class ResidualBlock(nn.Module):
                  block_type,
                  act_type,
                  planes,
+                 kernel_size=3,
                  res_factor=1,
                  act_params=dict()):
         super(ResidualBlock, self).__init__()
@@ -102,23 +103,23 @@ class ResidualBlock(nn.Module):
             self.m = nn.Sequential(
                 nn.BatchNorm2d(planes),
                 nn.ReLU(inplace=True),
-                Conv2d(planes, planes, 3),
+                Conv2d(planes, planes, kernel_size),
                 nn.BatchNorm2d(planes),
                 nn.ReLU(inplace=True),
-                Conv2d(planes, planes, 3),
+                Conv2d(planes, planes, kernel_size),
             )
         elif self.block_type == block_type.CRC:
             self.m = nn.Sequential(
-                Conv2d(planes, planes, 3),
+                Conv2d(planes, planes, kernel_size),
                 nn.ReLU(inplace=True),
-                Conv2d(planes, planes, 3),
+                Conv2d(planes, planes, kernel_size),
             )
         elif self.block_type == block_type.CBRCB:
             self.m = nn.Sequential(
-                Conv2d(planes, planes, 3),
+                Conv2d(planes, planes, kernel_size),
                 nn.BatchNorm2d(planes),
                 nn.ReLU(inplace=True),
-                Conv2d(planes, planes, 3),
+                Conv2d(planes, planes, kernel_size),
                 nn.BatchNorm2d(planes),
             )
 

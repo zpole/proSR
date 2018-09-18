@@ -5,7 +5,7 @@ from pprint import pprint
 from prosr.data import DataLoader, Dataset
 from prosr.logger import info
 from prosr.models.trainer import CurriculumLearningTrainer, SimultaneousMultiscaleTrainer
-from prosr.utils import get_filenames, IMG_EXTENSIONS, print_current_errors,set_seed
+from prosr.utils import get_filenames, IMG_EXTENSIONS, print_current_errors,set_seed,print_network
 from time import time
 
 import numpy as np
@@ -19,7 +19,6 @@ import yaml
 
 # BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 # sys.path.append(osp.join(BASE_DIR, 'lib'))
-
 
 def parse_args():
     parser = ArgumentParser(description='training script for ProSR')
@@ -92,7 +91,6 @@ def parse_args():
 
     return args
 
-
 def load_dataset(args):
     files = {'train':{},'test':{}}
 
@@ -151,6 +149,8 @@ def main(args):
 
     cls_model = getattr(prosr.models, args.G.class_name)
     model     = cls_model(**args.G).cuda()
+    print_network(model)
+    exit(0)
 
     trainer = Trainer_cl(
         args,

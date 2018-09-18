@@ -119,6 +119,7 @@ edsr_params.data.scale = [8]
 edsr_params.data.input_size = [24]
 edsr_params.G.class_name = 'EDSR'
 edsr_params.G.num_blocks = 36
+edsr_params.G.kernel_size= 3
 edsr_params.G.upscale_factor = edsr_params.data.scale[0]
 
 # gandebug_params = copy.deepcopy(prosrgan_params)
