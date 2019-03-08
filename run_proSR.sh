@@ -35,4 +35,4 @@ export PYTHONPATH=/home/${STUDENT_ID}/proSR/lib:$PYTHONPATH
 
 source /home/${STUDENT_ID}/miniconda3/bin/activate mlp
 cd /home/${STUDENT_ID}/proSR
-python test.py -i /home/s1825980/datasets/DIV2K/DIV2K_train_LR_bicubic/X4 -t /home/s1825980/datasets/DIV2K/DIV2K_train_HR --checkpoint ./proSR_x4.pth --scale 4
+python test.py -i /home/s1825980/datasets/DIV2K/DIV2K_valid_LR_bicubic/X4 -t /home/s1825980/datasets/DIV2K/DIV2K_valid_HR --checkpoint ./proSR_x4.pth --scale 4
